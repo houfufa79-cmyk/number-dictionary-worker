@@ -1,0 +1,19 @@
+# Dependencies
+node_modules/
+
+# Wrangler / Cloudflare Workers build artifacts
+.wrangler/
+.dev.vars
+.dev.vars.*
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
+
+# WorkBuddy local metadata
+.workbuddy/

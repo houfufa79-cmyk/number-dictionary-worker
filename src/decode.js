@@ -5,7 +5,7 @@
 //   - Only 6-digit numbers are decoded.
 //   - Interpretation A: split as 2+2+2 -> three 2-digit tokens.
 //   - Interpretation B: split as 3+3   -> two 3-digit tokens.
-//   - Each token's text is copied VERBATIM from the source MHTML by
+//   - Each token's text is copied VERBATIM from 51dic-ccby.xml by
 //     scripts/extract.mjs into src/raw-dictionary.js. Nothing is authored here.
 //
 // Shared by the Worker API (ESM import) and the web page (inlined by build.mjs).
@@ -86,6 +86,6 @@ export function decodeNumber(raw) {
     input,
     digits: str,
     interpretations,
-    source: '卡巴拉51词典 51 dictionary recopy (CC-BY) — 段落文字由 scripts/extract.mjs 从 mhtml 逐字复制',
+    source: '卡巴拉51词典 51 dictionary recopy (CC-BY) — 段落文字由 scripts/extract.mjs 从 51dic-ccby.xml 逐字复制',
   };
 }
