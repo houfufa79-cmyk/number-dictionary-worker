@@ -20,7 +20,7 @@
 ## 本地运行
 
 ```bash
-npm install       # 安装依赖（wrangler v4 + fast-xml-parser）
+npm install       # 安装依赖（wrangler v4）
 npm run dev       # 构建并启动本地开发服务器 http://localhost:8787
 ```
 
@@ -45,16 +45,16 @@ npm run deploy    # 构建并通过 wrangler 部署到 Cloudflare Workers
 
 ## 数据提取
 
-`51dic-ccby.xml`（Word 2003 ML，CC-BY）是词典的唯一数据源。`scripts/extract.mjs`
-使用 `fast-xml-parser` 解析其中的表格与段落，逐字提取后生成 `src/raw-dictionary.js`
-（`TWO_DIGIT` / `THREE_DIGIT`）：
+`51dic.csv`（4 列：数字,意义,例句数字,例句意义，CC-BY）是词典的唯一数据源。
+`scripts/extract.mjs` 解析 CSV，按两位（00-99）/三位（000-999）token 逐字提取后
+生成 `src/raw-dictionary.js`（`TWO_DIGIT` / `THREE_DIGIT`）：
 
 ```bash
 npm install
-node scripts/extract.mjs              # 从 51dic-ccby.xml 重新生成字典
+node scripts/extract.mjs              # 从 51dic.csv 重新生成字典
 ```
 
-仓库中的 `51dic.mhtml` 等文件仅为历史来源存档，不再参与构建。
+仓库中的 `51dic-ccby.xml`、`51dic.mhtml` 等文件仅为历史来源存档，不再参与构建。
 
 ## License
 

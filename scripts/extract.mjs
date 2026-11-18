@@ -1,132 +1,74 @@
-// Extracts the 2-digit and 3-digit meaning entries VERBATIM from 51dic-ccby.xml.
-// Source: 51dic-ccby.xml — a Word 2003 ML (WPS) document, CC-BY licensed.
-// Parsed with fast-xml-parser (zero-dependency, cross-platform).
-// Writes src/raw-dictionary.js — a literal copy of the source text, no rewriting.
+// Extracts the 2-digit and 3-digit meaning entries VERBATIM from 51dic.csv.
+// Source: 51dic.csv — hand-curated 4-column dictionary (数字,意义,例句数字,例句意义), CC-BY.
+// Writes src/raw-dictionary.js — a literal copy of the source cells, no rewriting.
 //
-// Run: node scripts/extract.mjs [path-to-xml]
+// Run: node scripts/extract.mjs [path-to-csv]
 import { readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { XMLParser } from 'fast-xml-parser';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const xmlPath = process.argv[2] || join(root, '51dic-ccby.xml');
+const csvPath = process.argv[2] || join(root, '51dic.csv');
 
-// ---- 1. Parse the WordML document ----
-// Keep tag values as strings and do not trim, so the source text is preserved.
-const parser = new XMLParser({
-  ignoreAttributes: false,
-  attributeNamePrefix: '@_',
-  textNodeName: '#text',
-  parseTagValue: false,
-  trimValues: false,
-});
-const doc = parser.parse(readFileSync(xmlPath, 'utf8'));
-const sect = doc['w:wordDocument']?.['w:body']?.['wx:sect'];
-if (!sect) throw new Error('51dic-ccby.xml: could not find w:body/wx:sect');
-
-// Recursively collect every <w:t> text run in document order. WordML splits a
-// single visible line across many runs (and <w:tab>/<w:br>), so gather them all.
-function collectText(node, out = []) {
-  if (node == null) return out;
-  if (Array.isArray(node)) {
-    for (const child of node) collectText(child, out);
-    return out;
+// ---- 1. Parse CSV (RFC4180-ish: comma separator, double-quote quoting, "" escape) ----
+function parseLine(line) {
+  const out = [];
+  let cur = '';
+  let quoted = false;
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i];
+    if (quoted) {
+      if (c === '"') {
+        if (line[i + 1] === '"') { cur += '"'; i++; }
+        else quoted = false;
+      } else cur += c;
+    } else if (c === '"') quoted = true;
+    else if (c === ',') { out.push(cur); cur = ''; }
+    else cur += c;
   }
-  if (typeof node === 'object') {
-    for (const [key, value] of Object.entries(node)) {
-      if (key === 'w:t') out.push(typeof value === 'string' ? value : String(value ?? ''));
-      else if (key === 'w:tab') out.push(' ');
-      else if (key === 'w:br' || key === 'w:cr') out.push(' ');
-      else collectText(value, out);
-    }
-  }
+  out.push(cur);
   return out;
 }
 
-// Collapse WordML's run-level whitespace into the single-spaced source text.
-function textOf(node) {
-  return collectText(node).join('').replace(/\s+/g, ' ').trim();
+const lines = readFileSync(csvPath, 'utf8').split(/\r?\n/).filter((l) => l.length);
+const dataRows = lines.slice(1).map(parseLine).filter((r) => r.length >= 2);
+
+// ---- 2. Map each row to a decode token key ----
+// decode.js only accepts 2-digit (00-99) and 3-digit (000-999) tokens, so rows
+// with non-numeric labels (诚信/友善/其他), "1,6 / 6,1", 4/5-digit, etc. are
+// intentionally left out — they cannot be produced by the 2+2+2 / 3+3 split.
+function tokenOf(numCell) {
+  const s = numCell.trim().replace(/\s*\(.*\)\s*$/, '').trim(); // drop " (Yin Yang)" notes
+  if (/^\d{2}$/.test(s)) return { map: 'two', key: s };
+  // "01 10", "16 16" → the first 2-digit token is the canonical key
+  const pair = s.match(/^(\d{2})\s+\d{2}$/);
+  if (pair) return { map: 'two', key: pair[1] };
+  if (/^\d{3}$/.test(s)) return { map: 'three', key: s };
+  if (/^\d{6}$/.test(s)) return { map: 'three', key: s }; // e.g. 101010
+  return null;
 }
-
-// Table-of-contents paragraphs end with a page number ("18.666行 五角星 21").
-// Drop it so the body wording wins when choosing the fullest match below.
-function withoutPageNumber(text) {
-  return text.replace(/\s+\d{1,2}$/, '').trim();
-}
-
-const paragraphs = (Array.isArray(sect['w:p']) ? sect['w:p'] : [])
-  .map(textOf)
-  .filter(Boolean);
-const tables = (Array.isArray(sect['w:tbl']) ? sect['w:tbl'] : []).map((table) =>
-  (Array.isArray(table['w:tr']) ? table['w:tr'] : []).map((row) =>
-    (Array.isArray(row['w:tc']) ? row['w:tc'] : []).map(textOf)
-  )
-);
-
-// ---- 2. Build the raw maps (cell/paragraph text, no editing) ----
-// 2-digit: table 0 rows [数字, 卦象/领域, 词典释义, 核心寓意简释]
-//          + the "欲望数字/欲望的数字" paragraphs (00 / 01..09).
-// 3-digit: table 1 rows [数字, 常见解读, 核心寓意简释]
-//          + the "星球例句" paragraphs (666 / 777 / 999 / 101010).
 
 const twoDigit = {};
-for (const row of (tables[0] || []).slice(1)) {
-  if (/^\d{2}$/.test(row[0] || '')) {
-    twoDigit[row[0]] = { gua: row[1] || '', dict: row[2] || '', core: row[3] || '', from: 'table' };
-  }
-}
-
-// Each token d has a "0d / d0" pair and a "0-d -d0" form in the source.
-// Gather EVERY paragraph that defines the token, verbatim.
-const twoDigitPatterns = {
-  '00': [/欲望数字[:：]\s*00\s*00/, /0-0\s*-\s*00/, /00\s*黑洞白洞/, /00\s*太阳系/],
-  '01': [/\b01\s+10\b/, /0-\s*1\s*-\s*10/, /\b01\s+二进制/],
-  '02': [/\b02\s+20\b/, /0-2\s*-\s*20/],
-  '03': [/\b03\s+30\b/, /0-3\s*-\s*30/],
-  '04': [/\b04\s+40\b/, /0-4\s*-\s*40/],
-  '05': [/\b05\s+50\b/, /0-5\s*-\s*50/],
-  '06': [/\b06\s+60\b/, /0-6\s*-\s*60/],
-  '07': [/\b07\s+70\b/, /0-7\s*-\s*70/],
-  '08': [/\b08\s+80\b/, /0-8\s*-\s*80/],
-  '09': [/\b09\s+90\b/, /0-9\s*-\s*90/],
-};
-for (const [key, patterns] of Object.entries(twoDigitPatterns)) {
-  const hits = paragraphs.filter((p) => patterns.some((re) => re.test(p)));
-  if (hits.length) {
-    twoDigit[key] = {
-      ...(twoDigit[key] || {}),
-      raw: hits.join(' '),
-      from: 'paragraph',
-    };
-  }
-}
-
 const threeDigit = {};
-for (const row of (tables[1] || []).slice(1)) {
-  if (/^\d{3}$/.test(row[0] || '')) {
-    threeDigit[row[0]] = { reading: row[1] || '', core: row[2] || '', from: 'table' };
-  }
+// Append verbatim cell text; duplicate keys are concatenated, never rewritten.
+function add(map, key, row) {
+  const [, meaning = '', exampleNums = '', exampleMeaning = ''] = row;
+  const raw = [meaning, exampleNums, exampleMeaning].filter(Boolean).join(' ').trim();
+  if (!raw) return;
+  const entry = (map[key] ||= { from: 'csv' });
+  entry.raw = entry.raw ? entry.raw + ' ' + raw : raw;
 }
-// Prefer the longest matching paragraph (anchor + extra explanation).
-const threeDigitAnchors = {
-  '666': /18\.666\s*行/,
-  '777': /20\.777\s*行/,
-  '999': /25\.999\s*行/,
-  '101010': /27\.101010\s*行/,
-};
-for (const [key, anchor] of Object.entries(threeDigitAnchors)) {
-  const hits = paragraphs.filter((p) => anchor.test(p)).map(withoutPageNumber);
-  if (hits.length) {
-    const best = hits.sort((a, b) => b.length - a.length)[0];
-    threeDigit[key] = { ...(threeDigit[key] || {}), raw: best, from: 'paragraph' };
-  }
+
+for (const row of dataRows) {
+  const t = tokenOf(row[0]);
+  if (!t) continue;
+  add(t.map === 'two' ? twoDigit : threeDigit, t.key, row);
 }
 
 // ---- 3. Write the generated module (literal copies) ----
 const header = [
-  '// GENERATED by scripts/extract.mjs — verbatim copies from 51dic-ccby.xml (CC-BY).',
-  '// Source: 51dic-ccby.xml — Word 2003 ML, parsed with fast-xml-parser.',
+  '// GENERATED by scripts/extract.mjs — verbatim copies from 51dic.csv (CC-BY).',
+  '// Source: 51dic.csv — hand-curated 4-column dictionary.',
   '// Do not edit by hand; re-run `node scripts/extract.mjs` to refresh.',
   '',
 ].join('\n');

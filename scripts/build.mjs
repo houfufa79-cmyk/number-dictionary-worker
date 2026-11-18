@@ -1,5 +1,5 @@
 // Bundles the standalone page (index.html) and the Worker's HTML module (src/page.js).
-// Source of truth: src/template.html + src/raw-dictionary.js (extracted from 51dic-ccby.xml) + src/decode.js
+// Source of truth: src/template.html + src/raw-dictionary.js (extracted from 51dic.csv) + src/decode.js
 import { readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
